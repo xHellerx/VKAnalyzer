@@ -20,8 +20,17 @@ def common():
     if not is_valid_user(y):
         print("Неверный пользователь: " + str(y))
         return
-    format_users_async(find_common(x, y))
+    x_friends = set(get_friends_tuples(get_uid(x)))
+    y_friends = set(get_friends_tuples(get_uid(y)))
+    format_users_async(x_friends & y_friends)
 
+def get_friends_tuples(user):
+    url = 'https://api.vk.com/method/friends.get?fields=uid,first_name,last_name&uid=%s' % str(user)
+    result = urllib.request.urlopen(url, None, 10).read().decode('utf-8')
+    return map(
+        lambda f: (f['uid'], f['first_name'], f['last_name']),
+        json.loads(result).get('response', [])
+    )
 
 def circle():
     x = input("Пользователь: ")
@@ -101,24 +110,44 @@ def format_users(users, show_uid):
         format_output(user, show_uid)
 
 class AsyncFetch(Thread):
-    def __init__(self, user):
+    def __init__(self, user, users_data):
         Thread.__init__(self)
         self.user = user
+        self.users_data = users_data
 
     def run(self):
-        data = get_name(self.user)
-        data = data[0] + " " + data[1] + " (" + str(get_friends_count(self.user))
-        print(data)
+        url = 'https://api.vk.com/method/friends.get?uid=%s' % self.user[0]
+        result = urllib.request.urlopen(url, None, 10).read().decode('utf-8')
+        friends = json.loads(result).get('response', [])
+
+        self.users_data.append({
+            'uid': self.user[0],
+            'first_name': self.user[1],
+            'last_name': self.user[2],
+            'friends_num': len(friends)
+        })
 
 def format_users_async(users):
+    users_data = []
     threads = []
     for user in users:
-        thread = AsyncFetch(user = user)
+        thread = AsyncFetch(user = user, users_data = users_data)
         thread.start()
         threads.append(thread)
 
     for thread in threads:
         thread.join()
+
+    print(
+        '\n'.join(
+            map(
+                lambda user: '%s %s: %d' % (user['first_name'], user['last_name'], user['friends_num']),
+                users_data
+            )
+        )
+    )
+    print('#########')
+    print('total: %d' % len(users_data))
 
 def format_output(user, show_uid):
     if isinstance(user, tuple):
