@@ -1,3 +1,4 @@
+import sys
 import urllib.request
 import json
 import pickle
@@ -244,9 +245,19 @@ load_db()
 debug = False
 
 def main():
-    print("Введите команду 'common()' и нажмите Enter для опеределения общих друзей")
-    print("Введите команду 'circle()' и нажмие Enter для определения круга общения")
-    print("Введите команду 'update()' и нажмите Enter, чтобы обновить данные на пользователя и вывести изменения")
+    if len(sys.argv) < 2:
+        print(
+            'Использование:\n'
+            '   `python3 vkanalyzer.py common` для определения общих друзей\n'
+            '   `python3 vkanalyzer.py circle` для определения круга общения\n'
+            '   `python3 vkanalyzer.py update`, чтобы обновить данные на пользователя и вывести изменения\n'
+        )
+    elif sys.argv[1] == 'common':
+        common()
+    elif sys.argv[1] == 'circle':
+        circle()
+    elif sys.argv[1] == 'update':
+        update()
 
 if __name__ == "__main__":
     main()
