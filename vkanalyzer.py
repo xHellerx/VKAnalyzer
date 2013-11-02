@@ -3,23 +3,24 @@ import json
 import pickle
 import os
 import math
+from threading import Thread
 
 def common():
     x = input("Первый пользователь: ")
     y = input("Второй пользователь: ")
     try:
         x = int(x)
-    except: pass
+    except ValueError: pass
     try:
         y = int(y)
-    except: pass
+    except ValueError: pass
     if not is_valid_user(x):
         print("Неверный пользователь: " + str(x))
         return
     if not is_valid_user(y):
         print("Неверный пользователь: " + str(y))
         return
-    format_users(find_common(x, y), False)
+    format_users_async(find_common(x, y))
 
 
 def circle():
@@ -99,6 +100,25 @@ def format_users(users, show_uid):
     for user in users:
         format_output(user, show_uid)
 
+class AsyncFetch(Thread):
+    def __init__(self, user):
+        Thread.__init__(self)
+        self.user = user
+
+    def run(self):
+        data = get_name(self.user)
+        data = data[0] + " " + data[1] + " (" + str(get_friends_count(self.user))
+        print(data)
+
+def format_users_async(users):
+    threads = []
+    for user in users:
+        thread = AsyncFetch(user = user)
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
 
 def format_output(user, show_uid):
     if isinstance(user, tuple):
