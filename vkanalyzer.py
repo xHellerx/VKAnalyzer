@@ -2,85 +2,63 @@ import sys
 import urllib.request
 import json
 import pickle
-import os
 import math
 from threading import Thread
 
 def common():
-    x = input("Первый пользователь: ")
-    y = input("Второй пользователь: ")
-    try:
-        x = int(x)
-    except ValueError: pass
-    try:
-        y = int(y)
-    except ValueError: pass
-    if not is_valid_user(x):
-        print("Неверный пользователь: " + str(x))
-        return
-    if not is_valid_user(y):
-        print("Неверный пользователь: " + str(y))
-        return
-    common = find_common(x, y)
-    output_friends_numbers(common)
+    x = read_uid('Первый пользователь: ')
+    y = read_uid('Второй пользователь: ')
+    users = find_common(x, y)
+    users_with_friends_num = get_friends_num(users)
+    output('{1} {2}: {3}', users_with_friends_num)
 
 def circle():
-    x = input("Пользователь: ")
-    try:
-        x = int(x)
-    except: pass
+    x = read_uid('Пользователь: ')
     count = int(input("Сколько друзей выводить: "))
     alg = int(input("Алгоритм (1 - число друзей; 2 - доля друзей; 3 - корневая доля друзей): "))
-
     user_circle = find_circle(x, count, alg)
     output('{3} {4}: {1}, {2}', user_circle)
 
-
 def update():
-    x = input("Пользователь: ")
-    try:
-        x = int(x)
-    except: pass
+    x = read_uid('Пользователь: ')
     delta = find_friends_diff(x)
-    print("Удалены из друзей:")
-    format_users(delta[0], True)
-    print("Добавлены в друзья:")
-    format_users(delta[1], True)
+    removed = get_friends_num(delta[0])
+    print('Удалены из друзей:')
+    output('{1} {2} ({3}; uid = {0})', removed)
+    added = get_friends_num(delta[1])
+    print('Добавлены в друзья:')
+    output('{1} {2} ({3}; uid = {0})', added)
 
 def find_common(x, y):
     if not isinstance(x, set):
-        x = set(get_friends_tuples(get_uid(x)))
+        x = set(get_friends(x))
     if not isinstance(y, set):
-        y = set(get_friends_tuples(get_uid(y)))
+        y = set(get_friends(y))
     return x & y
 
-class FetchFriendsCircle(Thread):
-    def __init__(self, user, orig_users_list, result):
+class FetchCommonFriends(Thread):
+    def __init__(self, user, target_friends, commons):
         Thread.__init__(self)
         self.user = user
-        self.orig_users_list = orig_users_list
-        self.result = result
+        self.target_friends = target_friends
+        self.commons = commons
 
     def run(self):
-        friends = set(get_friends_tuples(self.user[0]))
-        self.result.append((
+        friends = set(get_friends(self.user[0]))
+        self.commons.append((
             self.user[0],
-            len(find_common(self.orig_users_list, friends)),
+            len(find_common(self.target_friends, friends)),
             len(friends),
             self.user[1],
             self.user[2]
         ))
 
-def find_circle(x, count, alg):
-    if not is_valid_user(x):
-        print("Неверный пользователь: " + str(x))
-        return
-
+def find_circle(user, count, alg):
     commons = []
     threads = []
-    x_friends = set(get_friends_tuples(get_uid(x)))
-    for y in x_friends:
-        thread = FetchFriendsCircle(y, x_friends, commons)
+    target_friends = set(get_friends(user))
+    for friend in target_friends:
+        thread = FetchCommonFriends(friend, target_friends, commons)
         thread.start()
         threads.append(thread)
 
@@ -97,52 +75,26 @@ def find_circle(x, count, alg):
     return commons[:count]
 
 
-def find_friends_diff(x):
-    old = get_friends(x)
-    uid = get_uid(x)
-    new = request_friends(uid, False)
+def find_friends_diff(uid):
+    old = get_friends(uid)
+    new = get_friends(uid, False)
     deleted = [x for x in old if x not in new]
     added = [x for x in new if x not in old]
     return (deleted, added)
 
+def get_friends(user, use_cache = True):
+    if use_cache and user in db['friends']:
+        return db['friends'][user]
 
-def is_valid_user(x):
-    uid = get_uid(x)
-    if uid: return True
-    if "deactivated" in db["users"][uid]: return False
-    return True
-
-def get_friends(user, short_request = False):
-    user = get_uid(user)
-    if user not in db["users"]: db["users"][user] = {}
-    if "deactivated" in db["users"][user]: return set()
-    if "friends" in db["users"][user]:
-        friends = db["users"][user]["friends"]
-    else:
-        friends = request_friends(user, short_request)
-    return set(friends)
-
-
-def get_friends_count(user):
-    return len(get_friends(user, True))
-
-
-def format_users(users, show_uid):
-    for user in users:
-        format_output(user, show_uid)
-
-def fetch_friends(uid, short_request = True):
-    url = 'https://api.vk.com/method/friends.get?uid=' + str(uid)
-    if not short_request:
-        url += '&fields=uid,first_name,last_name'
-    result = urllib.request.urlopen(url, None, 10).read().decode('utf-8')
-    return json.loads(result).get('response', [])
-
-def get_friends_tuples(user):
-    return map(
+    result = list(map(
         lambda f: (f['uid'], f['first_name'], f['last_name']),
-        fetch_friends(user, False)
-    )
+        request_friends(user, False)
+    ))
+
+    db['friends'][user] = result
+
+    return result
+
 
 class FetchFriendsNum(Thread):
     def __init__(self, user, result):
@@ -151,24 +103,24 @@ class FetchFriendsNum(Thread):
         self.result = result
 
     def run(self):
-        self.result.append((
-            self.user[0],
-            self.user[1],
-            self.user[2],
-            len(fetch_friends(self.user[0]))
-        ))
+        uid = self.user[0]
+        if uid in db['tuples']:
+            output = db['tuples'][uid]
+        else:
+            output = (
+                self.user[0],
+                self.user[1],
+                self.user[2],
+                len(request_friends(self.user[0]))
+            )
+            db['tuples'][uid] = output
+        self.result.append(output)
 
 def output(template, data):
     for record in data:
         print(template.format(*record))
 
-def output_friends_numbers(users):
-    '''
-    Takes list of users tuples in format:
-        (uid, first_name, last_name)
-    Prints to the output list of users in format:
-        "{first_name} {last_name}: {number of friends}"
-    '''
+def get_friends_num(users):
     result = []
     threads = []
     for user in users:
@@ -179,82 +131,38 @@ def output_friends_numbers(users):
     for thread in threads:
         thread.join()
 
-    output('{1} {2}: {3}', result)
+    return result
 
-def format_output(user, show_uid):
-    if isinstance(user, tuple):
-        data = get_name(user[0])
-        data = data[0] + " " + data[1] + " (" + str(get_friends_count(user[0])) + "; " + str(user[1])
-    else:
-        data = get_name(user)
-        data = data[0] + " " + data[1] + " (" + str(get_friends_count(user))
-    if show_uid: data += "; uid = " + str(user) + ")"
-    print(data)
+def read_uid(message):
+    '''
+    Reads user id or name from input
+    Returns integer
+    Raises an exception if user is not found
+    '''
+    user = input(message)
+    uid = request_uid(user)
+    if not uid:
+        raise Exception('Пользователь {0} не найден'.format(user))
+    return uid
 
+def request_uid(user):
+    if user in db['shortnames']:
+        return db['shortnames'][user]
+    response = request('users.get?uids=' + user)
+    db['shortnames'][user] = response and response[0]['uid']
+    return db['shortnames'][user]
 
-def get_uid(shortname):
-    if not isinstance(shortname, str): return shortname
-    if shortname in db["shortnames"]: return db["shortnames"][shortname]
-    db["shortnames"][shortname] = request_uid(shortname)
-    return db["shortnames"][shortname]
+def request_friends(uid, short_request = True):
+    url = 'friends.get?uid=' + str(uid)
+    if not short_request:
+        url += '&fields=uid,first_name,last_name'
+    return request(url)
 
-def get_name(user):
-    uid = get_uid(user)
-    if uid not in db["users"] or "first_name" not in db["users"][uid]:
-        request_userinfo(uid)
-    return (db["users"][uid]["first_name"], db["users"][uid]["last_name"])
-
-
-def request_uid(shortname):
-    if debug: print("uid requested")
-    request = "users.get?uids={uids}"
-    request = "https://api.vk.com/method/" + request.format(uids = shortname)
-    data = urllib.request.urlopen(request, None, 10)
-    data = json.loads(data.read().decode('utf-8'))
-    data = data["response"][0]
-    cache_usersget(shortname, data)
-    return data["uid"]
-
-def request_userinfo(user):
-    if debug: print("userinfo requested")
-    request_uid(user)
-
-def request_friends(user, short_request):
-    if debug: print("friends requested")
-    request = "friends.get?uid={uid}"
-    if not short_request: request += "&fields={fields}"
-    request = "https://api.vk.com/method/" + request.format(
-        uid = user, fields = "uid,first_name,last_name")
-    if debug: print(request)
-    x = urllib.request.urlopen(request, None, 10)
-    x = json.loads(x.read().decode('utf-8'))
-    if "response" not in x:
-        request_userinfo(user)
-        db["users"][user]["friends"] = []
-        return set()
-    x = x["response"]
-    if short_request:
-        cache_friends(user, x)
-        return x
-    for t in x:
-        cache_usersget(t["uid"], t)
-    friends = set(t["uid"] for t in x)
-    cache_friends(user, friends)
-    return friends
-
-def cache_usersget(user, data):
-    if isinstance(user, str):
-        db["shortnames"][user] = data["uid"]
-        user = data["uid"]
-    if user not in db["users"]: db["users"][user] = {}
-    for key, value in data.items():
-        db["users"][user][key] = value
-    save_db()
-
-def cache_friends(uid, friends):
-    if uid not in db["users"]: db["users"][uid] = {}
-    db["users"][uid]["friends"] = friends
-    save_db()
+def request(url):
+    if debug: print(url)
+    root = 'https://api.vk.com/method/'
+    result = urllib.request.urlopen(root + url, None, 10).read().decode('utf-8')
+    return json.loads(result).get('response', [])
 
 def save_db():
     with open("cache.dat", "wb") as f:
@@ -270,7 +178,7 @@ def load_db():
         print("Ошибка базы данных! Напиши об этом Хеллеру."
               "Чтобы программа снова работала попробуй удалить cache.txt")
 
-db = {"shortnames" : {}, "users" : {}}
+db = { 'shortnames': {}, 'friends': {}, 'tuples': {} }
 load_db()
 
 debug = False
@@ -283,12 +191,15 @@ def main():
             '   `python3 vkanalyzer.py circle` для определения круга общения\n'
             '   `python3 vkanalyzer.py update`, чтобы обновить данные на пользователя и вывести изменения\n'
         )
+        return
     elif sys.argv[1] == 'common':
         common()
     elif sys.argv[1] == 'circle':
         circle()
     elif sys.argv[1] == 'update':
         update()
+
+    save_db()
 
 if __name__ == "__main__":
     main()
