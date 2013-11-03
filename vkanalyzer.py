@@ -189,7 +189,7 @@ def load_db():
     try:
         with open("cache.dat", "rb") as f:
             db = pickle.load(f)
-    except FileNotFoundError: pass
+    except IOError: pass
     except:
         print("Ошибка базы данных! Напиши об этом Хеллеру."
               "Чтобы программа снова работала попробуй удалить cache.txt")
