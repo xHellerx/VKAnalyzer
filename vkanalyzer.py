@@ -21,17 +21,8 @@ def common():
     if not is_valid_user(y):
         print("Неверный пользователь: " + str(y))
         return
-    x_friends = set(get_friends_tuples(get_uid(x)))
-    y_friends = set(get_friends_tuples(get_uid(y)))
-    format_users_async(x_friends & y_friends)
-
-def get_friends_tuples(user):
-    url = 'https://api.vk.com/method/friends.get?fields=uid,first_name,last_name&uid=%s' % str(user)
-    result = urllib.request.urlopen(url, None, 10).read().decode('utf-8')
-    return map(
-        lambda f: (f['uid'], f['first_name'], f['last_name']),
-        json.loads(result).get('response', [])
-    )
+    common = find_common(x, y)
+    output_friends_numbers(common)
 
 def circle():
     x = input("Пользователь: ")
@@ -40,7 +31,17 @@ def circle():
     except: pass
     count = int(input("Сколько друзей выводить: "))
     alg = int(input("Алгоритм (1 - число друзей; 2 - доля друзей; 3 - корневая доля друзей): "))
-    format_users(find_circle(x, count, alg), False)
+
+    user_circle = find_circle(x, count, alg)
+    print(
+        '\n'.join(
+            map(
+                lambda user: '%s %s: %d, %d' % (user[3], user[4], user[1], user[2]),
+                user_circle
+            )
+        )
+    )
+
 
 
 def update():
@@ -54,18 +55,46 @@ def update():
     print("Добавлены в друзья:")
     format_users(delta[1], True)
 
-def find_common(x, y, short_request = False):
-    x = get_friends(x, short_request)
-    y = get_friends(y, short_request)
-    return x&y
+def find_common(x, y):
+    if not isinstance(x, set):
+        x = set(get_friends_tuples(get_uid(x)))
+    if not isinstance(y, set):
+        y = set(get_friends_tuples(get_uid(y)))
+    return x & y
+
+class FetchFriendsCircle(Thread):
+    def __init__(self, user, orig_users_list, result):
+        Thread.__init__(self)
+        self.user = user
+        self.orig_users_list = orig_users_list
+        self.result = result
+
+    def run(self):
+        friends = set(get_friends_tuples(self.user[0]))
+        self.result.append((
+            self.user[0],
+            len(find_common(self.orig_users_list, friends)),
+            len(friends),
+            self.user[1],
+            self.user[2]
+        ))
 
 def find_circle(x, count, alg):
     if not is_valid_user(x):
         print("Неверный пользователь: " + str(x))
         return
-    friends = get_friends(x, True)
-    commons = [(f, len(find_common(x, f, True)), len(get_friends(f, True)))
-               for f in friends]
+
+    commons = []
+    threads = []
+    x_friends = set(get_friends_tuples(get_uid(x)))
+    for y in x_friends:
+        thread = FetchFriendsCircle(y, x_friends, commons)
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
+
     if alg == 1:
         f = lambda t: -t[1]
     elif alg == 2:
@@ -110,29 +139,44 @@ def format_users(users, show_uid):
     for user in users:
         format_output(user, show_uid)
 
-class AsyncFetch(Thread):
-    def __init__(self, user, users_data):
+def fetch_friends(uid, short_request = True):
+    url = 'https://api.vk.com/method/friends.get?uid=' + str(uid)
+    if not short_request:
+        url += '&fields=uid,first_name,last_name'
+    result = urllib.request.urlopen(url, None, 10).read().decode('utf-8')
+    return json.loads(result).get('response', [])
+
+def get_friends_tuples(user):
+    return map(
+        lambda f: (f['uid'], f['first_name'], f['last_name']),
+        fetch_friends(user, False)
+    )
+
+class FetchFriendsNum(Thread):
+    def __init__(self, user, result):
         Thread.__init__(self)
         self.user = user
-        self.users_data = users_data
+        self.result = result
 
     def run(self):
-        url = 'https://api.vk.com/method/friends.get?uid=%s' % self.user[0]
-        result = urllib.request.urlopen(url, None, 10).read().decode('utf-8')
-        friends = json.loads(result).get('response', [])
-
-        self.users_data.append({
+        self.result.append({
             'uid': self.user[0],
             'first_name': self.user[1],
             'last_name': self.user[2],
-            'friends_num': len(friends)
+            'friends_num': len(fetch_friends(self.user[0]))
         })
 
-def format_users_async(users):
-    users_data = []
+def output_friends_numbers(users):
+    '''
+    Takes list of users tuples in format:
+        (uid, first_name, last_name)
+    Prints to the output list of users in format:
+        "{first_name} {last_name}: {number of friends}"
+    '''
+    result = []
     threads = []
     for user in users:
-        thread = AsyncFetch(user = user, users_data = users_data)
+        thread = FetchFriendsNum(user, result)
         thread.start()
         threads.append(thread)
 
@@ -143,12 +187,12 @@ def format_users_async(users):
         '\n'.join(
             map(
                 lambda user: '%s %s: %d' % (user['first_name'], user['last_name'], user['friends_num']),
-                users_data
+                result
             )
         )
     )
     print('#########')
-    print('total: %d' % len(users_data))
+    print('total: %d' % len(result))
 
 def format_output(user, show_uid):
     if isinstance(user, tuple):
