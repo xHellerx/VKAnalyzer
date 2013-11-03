@@ -9,14 +9,14 @@ def common():
     x = read_uid('Первый пользователь: ')
     y = read_uid('Второй пользователь: ')
     users = find_common(x, y)
-    users_with_friends_num = get_friends_num(users)
+    users_with_friends_num = get_friends_num(list(users))
     output('{1} {2}: {3}', users_with_friends_num)
 
 def circle():
-    x = read_uid('Пользователь: ')
+    uid = read_uid('Пользователь: ')
     count = int(input("Сколько друзей выводить: "))
     alg = int(input("Алгоритм (1 - число друзей; 2 - доля друзей; 3 - корневая доля друзей): "))
-    user_circle = find_circle(x, count, alg)
+    user_circle = find_circle(uid, count, alg)
     output('{3} {4}: {1}, {2}', user_circle)
 
 def update():
@@ -54,16 +54,13 @@ class FetchCommonFriends(Thread):
         ))
 
 def find_circle(user, count, alg):
-    commons = []
-    threads = []
-    target_friends = set(get_friends(user))
-    for friend in target_friends:
-        thread = FetchCommonFriends(friend, target_friends, commons)
-        thread.start()
-        threads.append(thread)
+    target_friends = get_friends(user)
+    target_friends_set = set(target_friends)
 
-    for thread in threads:
-        thread.join()
+    commons = fetch_async(
+        target_friends,
+        lambda user, result: FetchCommonFriends(user, target_friends_set, result)
+    )
 
     if alg == 1:
         f = lambda t: -t[1]
@@ -83,6 +80,7 @@ def find_friends_diff(uid):
     return (deleted, added)
 
 def get_friends(user, use_cache = True):
+    '''Returns list'''
     if use_cache and user in db['friends']:
         return db['friends'][user]
 
@@ -121,15 +119,33 @@ def output(template, data):
         print(template.format(*record))
 
 def get_friends_num(users):
-    result = []
-    threads = []
-    for user in users:
-        thread = FetchFriendsNum(user, result)
-        thread.start()
-        threads.append(thread)
+    return fetch_async(
+        users,
+        lambda user, result: FetchFriendsNum(user, result)
+    )
 
-    for thread in threads:
-        thread.join()
+def fetch_async(input_list, action):
+    '''
+    Applies the action on input list items in separate threads
+    Restricts number of simultaneous threads
+    '''
+    result = []
+    max_threads_num = 250
+    input_list_len = len(input_list)
+
+    for i in range(0, input_list_len, max_threads_num):
+        if input_list_len > max_threads_num:
+            print('fetching friends from {0} to {1} out of {2}...'
+                    .format(i + 1, i + max_threads_num, input_list_len))
+        group = input_list[i:i + max_threads_num]
+        threads = []
+        for friend in group:
+            thread = action(friend, result)
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
 
     return result
 
