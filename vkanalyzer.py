@@ -33,15 +33,7 @@ def circle():
     alg = int(input("Алгоритм (1 - число друзей; 2 - доля друзей; 3 - корневая доля друзей): "))
 
     user_circle = find_circle(x, count, alg)
-    print(
-        '\n'.join(
-            map(
-                lambda user: '%s %s: %d, %d' % (user[3], user[4], user[1], user[2]),
-                user_circle
-            )
-        )
-    )
-
+    output('{3} {4}: {1}, {2}', user_circle)
 
 
 def update():
@@ -159,12 +151,16 @@ class FetchFriendsNum(Thread):
         self.result = result
 
     def run(self):
-        self.result.append({
-            'uid': self.user[0],
-            'first_name': self.user[1],
-            'last_name': self.user[2],
-            'friends_num': len(fetch_friends(self.user[0]))
-        })
+        self.result.append((
+            self.user[0],
+            self.user[1],
+            self.user[2],
+            len(fetch_friends(self.user[0]))
+        ))
+
+def output(template, data):
+    for record in data:
+        print(template.format(*record))
 
 def output_friends_numbers(users):
     '''
@@ -183,16 +179,7 @@ def output_friends_numbers(users):
     for thread in threads:
         thread.join()
 
-    print(
-        '\n'.join(
-            map(
-                lambda user: '%s %s: %d' % (user['first_name'], user['last_name'], user['friends_num']),
-                result
-            )
-        )
-    )
-    print('#########')
-    print('total: %d' % len(result))
+    output('{1} {2}: {3}', result)
 
 def format_output(user, show_uid):
     if isinstance(user, tuple):
